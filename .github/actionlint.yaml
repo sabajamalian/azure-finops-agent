@@ -1,0 +1,7 @@
+# actionlint configuration. https://github.com/rhysd/actionlint/blob/main/docs/config.md
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      # Real permission for Copilot CLI auth with GITHUB_TOKEN; actionlint 1.7.12 doesn't know it yet.
+      # https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli-in-actions
+      - 'unknown permission scope "copilot-requests"'

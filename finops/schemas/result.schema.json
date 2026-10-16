@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Result of a headless FinOps run (result.json, written by submit_result)",
+  "$defs": {
+    "CreateIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "create_issue",
+          "default": "create_issue",
+          "title": "Type",
+          "type": "string"
+        },
+        "destination": {
+          "description": "Destination id from finops/config.yaml",
+          "title": "Destination",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 3,
+          "title": "Title",
+          "type": "string"
+        },
+        "body": {
+          "maxLength": 50000,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        },
+        "labels": {
+          "description": "Extra labels; the destination's labels are added automatically. finops-anomaly, finops-ask, finops-failure, finops-report are reserved.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Labels",
+          "type": "array"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stable id used to avoid duplicate issues",
+          "title": "Fingerprint"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "destination",
+        "title",
+        "body"
+      ],
+      "title": "CreateIssue",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 200,
+          "minLength": 3,
+          "title": "Title",
+          "type": "string"
+        },
+        "impact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Impact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "description": "Evidence ids returned by FinOps tools",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "details": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Details",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "confidence",
+        "evidence_ids"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "Impact": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "title": "Amount",
+          "type": "number"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "period": {
+          "enum": [
+            "day",
+            "month",
+            "year",
+            "one_time",
+            "analysis_period"
+          ],
+          "title": "Period",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "currency",
+        "period"
+      ],
+      "title": "Impact",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "no_action",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "summary": {
+      "description": "Markdown answer or report",
+      "maxLength": 60000,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "maxItems": 50,
+      "title": "Findings",
+      "type": "array"
+    },
+    "actions": {
+      "items": {
+        "$ref": "#/$defs/CreateIssue"
+      },
+      "maxItems": 25,
+      "title": "Actions",
+      "type": "array"
+    },
+    "evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "status",
+    "summary"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Azure FinOps agent configuration (finops/config.yaml)",
+  "$defs": {
+    "AgentSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "azure-finops",
+          "description": "Agent name shown in outbound messages",
+          "title": "Name",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model pinned for headless runs (copilot --model)",
+          "title": "Model"
+        }
+      },
+      "title": "AgentSettings",
+      "type": "object"
+    },
+    "AnomalySettings": {
+      "additionalProperties": false,
+      "properties": {
+        "lookback_days": {
+          "default": 60,
+          "maximum": 365,
+          "minimum": 14,
+          "title": "Lookback Days",
+          "type": "integer"
+        },
+        "baseline_days": {
+          "default": 28,
+          "maximum": 180,
+          "minimum": 7,
+          "title": "Baseline Days",
+          "type": "integer"
+        },
+        "skip_recent_days": {
+          "default": 2,
+          "description": "Most recent days excluded because cost data is still arriving",
+          "maximum": 7,
+          "minimum": 0,
+          "title": "Skip Recent Days",
+          "type": "integer"
+        },
+        "min_impact": {
+          "default": 50.0,
+          "description": "Minimum daily cost increase, in billing currency",
+          "minimum": 0,
+          "title": "Min Impact",
+          "type": "number"
+        },
+        "min_percent": {
+          "default": 30.0,
+          "description": "Minimum percent increase over expected",
+          "minimum": 0,
+          "title": "Min Percent",
+          "type": "number"
+        },
+        "z_threshold": {
+          "default": 3.5,
+          "description": "Robust z-score threshold (median/MAD)",
+          "exclusiveMinimum": 0,
+          "title": "Z Threshold",
+          "type": "number"
+        },
+        "group_by": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "title": "Group By",
+          "type": "array"
+        },
+        "max_investigations_per_day": {
+          "default": 3,
+          "maximum": 50,
+          "minimum": 0,
+          "title": "Max Investigations Per Day",
+          "type": "integer"
+        }
+      },
+      "title": "AnomalySettings",
+      "type": "object"
+    },
+    "AzureSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "subscriptions": {
+          "items": {
+            "$ref": "#/$defs/Subscription"
+          },
+          "minItems": 1,
+          "title": "Subscriptions",
+          "type": "array"
+        },
+        "cost_basis": {
+          "default": "ActualCost",
+          "description": "Default cost basis when a question doesn't specify one",
+          "enum": [
+            "ActualCost",
+            "AmortizedCost"
+          ],
+          "title": "Cost Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "subscriptions"
+      ],
+      "title": "AzureSettings",
+      "type": "object"
+    },
+    "Destination": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "github_issue",
+          "default": "github_issue",
+          "title": "Type",
+          "type": "string"
+        },
+        "labels": {
+          "description": "Labels applied to issues created here",
+          "items": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Destination",
+      "type": "object"
+    },
+    "Subscription": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Azure subscription ID",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Friendly name used in reports",
+          "title": "Name"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Subscription",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "agent": {
+      "$ref": "#/$defs/AgentSettings"
+    },
+    "azure": {
+      "$ref": "#/$defs/AzureSettings"
+    },
+    "timezone": {
+      "default": "UTC",
+      "description": "IANA timezone used for reports and schedules",
+      "title": "Timezone",
+      "type": "string"
+    },
+    "anomaly": {
+      "$ref": "#/$defs/AnomalySettings"
+    },
+    "destinations": {
+      "items": {
+        "$ref": "#/$defs/Destination"
+      },
+      "minItems": 1,
+      "title": "Destinations",
+      "type": "array"
+    },
+    "retention_days": {
+      "default": 30,
+      "description": "Actions artifact retention for run records",
+      "maximum": 400,
+      "minimum": 1,
+      "title": "Retention Days",
+      "type": "integer"
+    },
+    "max_issues_per_run": {
+      "default": 5,
+      "maximum": 25,
+      "minimum": 0,
+      "title": "Max Issues Per Run",
+      "type": "integer"
+    },
+    "allow_public_repo_output": {
+      "default": false,
+      "description": "Allow posting spend data when the repository is public. Keep false.",
+      "title": "Allow Public Repo Output",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "azure",
+    "destinations"
+  ],
+  "type": "object"
+}

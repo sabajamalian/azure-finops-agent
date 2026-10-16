@@ -1,0 +1,19 @@
+# Third-party MCP servers the agent may use, and the exact tools allowed from each.
+# `finops check-agent-profile` (run in CI) fails if the agent profile or .vscode/mcp.json enables a
+# server or tool that isn't listed here. Every server must run read-only, with a pinned version.
+version: 1
+servers:
+  azure-mcp:
+    command: npx
+    args: ["-y", "@azure/mcp@3.0.0", "server", "start", "--read-only"]
+    env:
+      AZURE_MCP_COLLECT_TELEMETRY: "false"
+    tools:
+      - advisor_recommendation_list
+      - advisor_recommendation_summary
+      - pricing_get
+    # Never allowed, even if a future version exposes it without --read-only.
+    deny:
+      - advisor_recommendation_update
+    # Set to false to keep this server out of headless (Actions) runs.
+    headless: true

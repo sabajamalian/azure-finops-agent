@@ -1,0 +1,201 @@
+# Runs one headless FinOps task. Every surface goes through this workflow: manual runs, `finops-ask` issues,
+# scheduled automations (finops-dispatch.yml), and anomaly investigations (finops-anomaly.yml).
+#
+# Two jobs, split on purpose:
+#   run  - can read Azure (OIDC) and use Copilot, but can't write to GitHub.
+#   post - can write issues, but has no Azure access and no Copilot token. It publishes only a
+#          schema-checked result.json, and only to destinations allowed in finops/config.yaml.
+name: finops-run
+
+# The dispatchers dedupe on the last word of this title, so keep dedupe_key last.
+run-name: finops ${{ inputs.kind }} ${{ inputs.automation || '-' }} ${{ inputs.dedupe_key || '-' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "Task kind. Use manual from the UI; the other kinds are started by the dispatchers."
+        type: choice
+        options: [manual, ask, schedule, anomaly]
+        default: manual
+      question:
+        description: "manual: a FinOps question to answer"
+        type: string
+        required: false
+      automation:
+        description: "manual/schedule/anomaly: automation name from finops/automations/"
+        type: string
+        required: false
+      slot:
+        description: "schedule: slot id (set by finops-dispatch)"
+        type: string
+        required: false
+      issue:
+        description: "ask: issue number"
+        type: string
+        required: false
+      comment_id:
+        description: "ask: id of the /finops comment, if any"
+        type: string
+        required: false
+      anomaly:
+        description: "anomaly: JSON payload (set by finops-anomaly)"
+        type: string
+        required: false
+      dedupe_key:
+        description: "Idempotency key (set by the dispatchers)"
+        type: string
+        required: false
+
+permissions: {}
+
+# One run per dedupe key. A single shared group would cancel all but one pending run, so tasks
+# don't share a group; Cost Management throttling is handled by the server's rate limiter.
+concurrency:
+  group: finops-run-${{ inputs.dedupe_key || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  COPILOT_CLI_VERSION: "1.0.98"
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  run:
+    if: vars.FINOPS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: finops
+    timeout-minutes: 45
+    permissions:
+      contents: read # checkout, automation provenance
+      pull-requests: read # automation provenance (which PR approved the file)
+      issues: read # ask runs read the question thread
+      id-token: write # OIDC to Azure
+      copilot-requests: write # Copilot CLI auth with this job's token when no PAT secret is set
+    outputs:
+      retention_days: ${{ steps.prepare.outputs.retention_days }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: mcp-server/pyproject.toml
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up paths
+        run: |
+          {
+            echo "FINOPS_OUT=$RUNNER_TEMP/finops-out"
+            # Keep the Azure CLI token cache out of the workspace and away from other steps' defaults.
+            echo "AZURE_CONFIG_DIR=$RUNNER_TEMP/azcfg"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/finops-out" "$RUNNER_TEMP/azcfg"
+
+      - name: Install FinOps MCP server and Copilot CLI
+        run: |
+          python -m pip install --quiet ./mcp-server
+          npm install --global --no-fund --no-audit "@github/copilot@${COPILOT_CLI_VERSION}"
+          # Fetch allow-listed npx MCP servers now so their first start in the agent doesn't time out.
+          for pkg in $(yq -r '.servers[]? | select(.command == "npx") | .args[] | select(test("^@"))' finops/allowlist.yaml); do
+            npx --yes "$pkg" --version >/dev/null 2>&1 || echo "::warning::could not prefetch $pkg"
+          done
+
+      - name: Prepare task
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INPUT_KIND: ${{ inputs.kind }}
+          INPUT_QUESTION: ${{ inputs.question }}
+          INPUT_AUTOMATION: ${{ inputs.automation }}
+          INPUT_SLOT: ${{ inputs.slot }}
+          INPUT_ISSUE: ${{ inputs.issue }}
+          INPUT_COMMENT_ID: ${{ inputs.comment_id }}
+          INPUT_ANOMALY: ${{ inputs.anomaly }}
+          INPUT_DEDUPE_KEY: ${{ inputs.dedupe_key }}
+        run: finops task prepare --output-dir "$FINOPS_OUT"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Run agent
+        env:
+          # A PAT in the finops environment wins; otherwise this job's GITHUB_TOKEN (copilot-requests: write).
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN || github.token }}
+          COPILOT_AUTH: ${{ secrets.COPILOT_GITHUB_TOKEN != '' && 'COPILOT_GITHUB_TOKEN secret' || 'workflow GITHUB_TOKEN' }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          # Both MCP servers authenticate with the az login above and skip the rest of the credential chain.
+          AZURE_TOKEN_CREDENTIALS: AzureCliCredential
+        run: |
+          echo "Copilot CLI authenticates with the $COPILOT_AUTH"
+          finops task run-agent --output-dir "$FINOPS_OUT"
+
+      - name: Finalize
+        if: always()
+        run: finops task finalize --output-dir "$FINOPS_OUT"
+
+      - name: Clear Azure credentials
+        if: always()
+        run: rm -rf "$AZURE_CONFIG_DIR"
+
+      - name: Upload task record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: finops-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/finops-out
+          retention-days: ${{ steps.prepare.outputs.retention_days || 30 }}
+          if-no-files-found: error
+
+  post:
+    needs: run
+    if: ${{ !cancelled() && needs.run.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # read config and automations from the default branch
+      issues: write # create report and action issues, comment on ask issues
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: mcp-server/pyproject.toml
+
+      - name: Install
+        run: python -m pip install --quiet ./mcp-server
+
+      - name: Download task record
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: finops-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/finops-out
+
+      - name: Publish result
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: finops post --output-dir "$RUNNER_TEMP/finops-out"
+
+      - name: Upload post record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: finops-post-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/finops-out/post.json
+          retention-days: ${{ needs.run.outputs.retention_days || 30 }}
+          if-no-files-found: ignore

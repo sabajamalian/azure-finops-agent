@@ -1,0 +1,50 @@
+# Hourly: start a finops-run for every enabled schedule automation whose slot is due.
+# Actions cron can be delayed, so the dispatcher looks back over a window and dedupes by slot id.
+name: finops-dispatch
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List due slots without starting runs"
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: finops-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: vars.FINOPS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write # list recent finops-run runs and start new ones
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: mcp-server/pyproject.toml
+
+      - name: Install
+        run: python -m pip install --quiet ./mcp-server
+
+      - name: Dispatch due schedules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=()
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          finops dispatch --window-hours 3 "${args[@]}"

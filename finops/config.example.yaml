@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=./schemas/config.schema.json
+#
+# Copy to finops/config.yaml and fill in your tenant and subscriptions. Tenant and subscription IDs
+# aren't secrets, but keep this repository private: issues and artifacts will contain spend data.
+version: 1
+
+agent:
+  name: azure-finops            # shown in the footer of every issue and comment the agent posts
+  # Pin a model for headless runs (passed to copilot --model) so scheduled reports are reproducible.
+  # Use an id your Copilot plan offers (see /model in Copilot CLI). Unset means the CLI default.
+  # model: <model-id>
+
+azure:
+  tenant_id: 00000000-0000-0000-0000-000000000000
+  subscriptions:
+    - id: 00000000-0000-0000-0000-000000000001
+      name: contoso-prod
+    - id: 00000000-0000-0000-0000-000000000002
+      name: contoso-dev
+  cost_basis: ActualCost        # or AmortizedCost (spreads reservation and savings plan purchases)
+
+timezone: America/Los_Angeles   # used for reports and as the default for schedules
+
+anomaly:
+  lookback_days: 60
+  baseline_days: 28
+  skip_recent_days: 2           # Cost Management data for the last 1 to 2 days is incomplete
+  min_impact: 50                # minimum daily increase, in billing currency
+  min_percent: 30
+  z_threshold: 3.5
+  group_by: [ResourceGroupName, ServiceName]
+  max_investigations_per_day: 3 # each investigation is one Copilot premium request or more
+
+# Where headless runs may post. Only github_issue in this version. Automations pick from these ids.
+destinations:
+  - id: finops-reports
+    type: github_issue
+    labels: [finops-report]
+  - id: finops-actions
+    type: github_issue
+    labels: [finops-action]
+
+retention_days: 30              # Actions artifact retention for run records (task, transcript, audit)
+max_issues_per_run: 5
+allow_public_repo_output: false # keep false; posting spend data to a public repo is refused

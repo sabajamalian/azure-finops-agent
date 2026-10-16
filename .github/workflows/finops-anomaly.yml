@@ -1,0 +1,112 @@
+# Daily: run the deterministic anomaly detector (no Copilot), then start one finops-run investigation per
+# new anomaly that matches an anomaly automation, up to anomaly.max_investigations_per_day.
+name: finops-anomaly
+
+on:
+  schedule:
+    - cron: "23 14 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Detect and list matches without starting investigations"
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: finops-anomaly
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    if: vars.FINOPS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: finops
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # OIDC to Azure
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: mcp-server/pyproject.toml
+
+      - name: Set up paths
+        run: |
+          {
+            echo "FINOPS_OUT=$RUNNER_TEMP/detect-out"
+            echo "AZURE_CONFIG_DIR=$RUNNER_TEMP/azcfg"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/detect-out" "$RUNNER_TEMP/azcfg"
+
+      - name: Install
+        run: python -m pip install --quiet ./mcp-server
+
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Detect anomalies
+        env:
+          AZURE_TOKEN_CREDENTIALS: AzureCliCredential
+        run: finops detect --output "$FINOPS_OUT/anomalies.json" --output-dir "$FINOPS_OUT"
+
+      - name: Clear Azure credentials
+        if: always()
+        run: rm -rf "$AZURE_CONFIG_DIR"
+
+      - name: Upload detection record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: finops-detect-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/detect-out
+          retention-days: 30
+          if-no-files-found: error
+
+  dispatch:
+    needs: detect
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read # skip anomalies that already have an issue
+      actions: write # start finops-run investigations
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: mcp-server/pyproject.toml
+
+      - name: Install
+        run: python -m pip install --quiet ./mcp-server
+
+      - name: Download detection record
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: finops-detect-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/detect-out
+
+      - name: Start investigations
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=()
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          finops anomaly-dispatch --anomalies "$RUNNER_TEMP/detect-out/anomalies.json" "${args[@]}"

@@ -1,0 +1,11 @@
+# Changes to what the agent can do, where it posts, or when it runs need an owner's review.
+# Replace @your-org/finops-owners with a real team or user in your copy of the template, and turn on
+# "Require review from Code Owners" in the default branch's protection rules.
+/finops/config.yaml          @your-org/finops-owners
+/finops/allowlist.yaml       @your-org/finops-owners
+/finops/automations/         @your-org/finops-owners
+/finops/context/             @your-org/finops-owners
+/.github/agents/             @your-org/finops-owners
+/.github/workflows/          @your-org/finops-owners
+/.vscode/mcp.json            @your-org/finops-owners
+/mcp-server/                 @your-org/finops-owners

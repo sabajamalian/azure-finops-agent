@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Azure FinOps automation (finops/automations/<name>.yaml)",
+  "$defs": {
+    "AnomalyFilter": {
+      "additionalProperties": false,
+      "properties": {
+        "natural": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The filter as the user said it",
+          "title": "Natural"
+        },
+        "min_impact": {
+          "default": 0,
+          "description": "Minimum daily increase over expected",
+          "minimum": 0,
+          "title": "Min Impact",
+          "type": "number"
+        },
+        "min_percent": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Min Percent",
+          "type": "number"
+        },
+        "subscriptions": {
+          "items": {
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "title": "Subscriptions",
+          "type": "array"
+        },
+        "match": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "Dimension -> allowed values (case-insensitive), e.g. {ServiceName: [Virtual Machines]}",
+          "title": "Match",
+          "type": "object"
+        }
+      },
+      "title": "AnomalyFilter",
+      "type": "object"
+    },
+    "AnomalyTrigger": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "anomaly",
+          "title": "Type",
+          "type": "string"
+        },
+        "filter": {
+          "$ref": "#/$defs/AnomalyFilter"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "AnomalyTrigger",
+      "type": "object"
+    },
+    "Schedule": {
+      "additionalProperties": false,
+      "properties": {
+        "natural": {
+          "description": "The schedule as the user said it, for example 'every Monday at 9 AM'",
+          "title": "Natural",
+          "type": "string"
+        },
+        "cron": {
+          "description": "5-field cron expression evaluated in `timezone`",
+          "title": "Cron",
+          "type": "string"
+        },
+        "timezone": {
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "business_day": {
+          "anyOf": [
+            {
+              "enum": [
+                "first",
+                "last"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only fire on the first or last business day (Mon-Fri) of the month. Use with a weekday cron such as '0 9 * * 1-5'.",
+          "title": "Business Day"
+        }
+      },
+      "required": [
+        "natural",
+        "cron"
+      ],
+      "title": "Schedule",
+      "type": "object"
+    },
+    "ScheduleTrigger": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "schedule",
+          "title": "Type",
+          "type": "string"
+        },
+        "schedule": {
+          "$ref": "#/$defs/Schedule"
+        }
+      },
+      "required": [
+        "type",
+        "schedule"
+      ],
+      "title": "ScheduleTrigger",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "trigger": {
+      "discriminator": {
+        "mapping": {
+          "anomaly": "#/$defs/AnomalyTrigger",
+          "schedule": "#/$defs/ScheduleTrigger"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ScheduleTrigger"
+        },
+        {
+          "$ref": "#/$defs/AnomalyTrigger"
+        }
+      ],
+      "title": "Trigger"
+    },
+    "instructions": {
+      "minLength": 10,
+      "title": "Instructions",
+      "type": "string"
+    },
+    "subscriptions": {
+      "description": "Subset of configured subscriptions; empty means all configured",
+      "items": {
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "type": "string"
+      },
+      "title": "Subscriptions",
+      "type": "array"
+    },
+    "destinations": {
+      "description": "Destination ids from finops/config.yaml",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Destinations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "trigger",
+    "instructions",
+    "destinations"
+  ],
+  "type": "object"
+}

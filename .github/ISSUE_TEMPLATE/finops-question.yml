@@ -1,0 +1,23 @@
+name: Ask the FinOps agent
+description: Ask a question about Azure spend. The agent answers in a comment (collaborators only).
+title: "FinOps: "
+labels: [finops-ask]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The agent reads cost data for the subscriptions in `finops/config.yaml` and answers here, usually within
+        a few minutes. Only repository collaborators can trigger it. Follow up by commenting `/finops <question>`.
+        If the answer proposes new issues, a collaborator replies `/finops approve` to create them.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: For example, "Why did spend in contoso-prod go up last week?" or "What are our top Advisor savings?"
+    validations:
+      required: true
+  - type: input
+    id: scope
+    attributes:
+      label: Subscription or resource group (optional)
+      placeholder: contoso-prod

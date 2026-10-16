@@ -1,0 +1,29 @@
+{
+  "servers": {
+    "azure-finops": {
+      "type": "stdio",
+      "command": "azure-finops-mcp",
+      "args": []
+    },
+    "azure-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@azure/mcp@3.0.0",
+        "server",
+        "start",
+        "--read-only",
+        "--tool",
+        "advisor_recommendation_list",
+        "--tool",
+        "advisor_recommendation_summary",
+        "--tool",
+        "pricing_get"
+      ],
+      "env": {
+        "AZURE_MCP_COLLECT_TELEMETRY": "false"
+      }
+    }
+  }
+}

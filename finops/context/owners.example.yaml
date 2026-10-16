@@ -1,0 +1,16 @@
+# Copy to owners.yaml. Rules are checked in order; the first match wins.
+# Match keys (all optional, combined with AND):
+#   subscription: exact subscription id
+#   resource_group: glob, case-insensitive (rg-ml-*)
+#   resource_type: glob on the Advisor impacted type (microsoft.compute/virtualmachines)
+#   resource_id_contains: substring of the resource id
+owners:
+  - team: ml-platform
+    match:
+      resource_group: rg-ml*
+  - team: shared-services
+    match:
+      resource_group: rg-shared*
+  - team: platform
+    match:
+      subscription: 00000000-0000-0000-0000-000000000001

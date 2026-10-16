@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=../schemas/automation.schema.json
+name: investigate-anomalies
+description: Investigate cost anomalies of at least 100 per day and open an issue with the likely cause.
+enabled: false
+trigger:
+  type: anomaly
+  filter:
+    natural: anomalies over 100 USD a day
+    min_impact: 100
+    min_percent: 30
+instructions: |
+  Confirm the anomaly with daily cost data, identify which resources and meters drive it, and
+  correlate it with changes (Activity Log and resource changes) around the start date. Say who made
+  the most likely related change and when, with your confidence and the "correlation isn't proof"
+  caveat. Check whether Advisor has a recommendation for the resources involved. End with suggested
+  next steps for a human; don't propose changes you can't support with evidence.
+destinations: [finops-reports]

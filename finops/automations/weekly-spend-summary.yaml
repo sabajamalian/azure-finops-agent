@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=../schemas/automation.schema.json
+name: weekly-spend-summary
+description: Weekly spend summary with the biggest movers and open Advisor savings.
+enabled: false
+trigger:
+  type: schedule
+  schedule:
+    natural: every Monday at 9 AM Pacific
+    cron: "0 9 * * 1"
+    timezone: America/Los_Angeles
+instructions: |
+  Summarize last week's (Monday to Sunday) actual cost for each configured subscription.
+  Compare it with the previous week, list the top 5 services by absolute change, and explain the
+  largest increase down to the resource level. Include the total open Advisor cost savings per
+  subscription and the top 3 recommendations. Keep it to one screen: a short headline, one table
+  per section, and an Evidence section. Use status no_action only if there's no cost data at all.
+destinations: [finops-reports]
