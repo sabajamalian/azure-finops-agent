@@ -201,7 +201,7 @@ EOF
   STEP=$((STEP + 1))
 fi
 cat <<EOF
-  $STEP. On EA or MCA billing, make sure subscription readers can see charges (docs/setup.md).
+  $STEP. On EA or MCA billing, make sure subscription readers can see charges (docs/setup.md#ea-and-mca-cost-visibility).
   $((STEP + 1)). Commit finops/config.yaml, then check access: run the finops-run workflow with kind=manual and a
      question like "What did each subscription cost last month?"
 EOF

@@ -95,7 +95,7 @@ sequenceDiagram
 
 1. `finops task prepare` builds `task.json` and `prompt.md` from the inputs. Issue text and anomaly titles are wrapped in `<<<UNTRUSTED-...>>>` markers. For automations it records who last changed the file and which approved PR merged it.
 2. `azure/login` signs in as the user-assigned managed identity. It has only Reader and Cost Management Reader.
-3. `finops task run-agent` runs `copilot -p <prompt> --agent azure-finops`. Copilot authenticates with the `COPILOT_GITHUB_TOKEN` secret if one is set, otherwise with the job's own `GITHUB_TOKEN` (see [setup](setup.md#copilot-authentication)). The flags are:
+3. `finops task run-agent` runs `copilot -p <prompt> --agent azure-finops`. Copilot authenticates with the `COPILOT_GITHUB_TOKEN` secret if one is set, otherwise with the job's own `GITHUB_TOKEN` (see [Copilot authentication](headless.md#copilot-authentication)). The flags are:
    - `--no-ask-user`, `--disable-builtin-mcps`, `--disallow-temp-dir`, and `--deny-tool` for `shell`, `write`, and `url`.
    - `--allow-tool` for the FinOps server and only the allow-listed third-party tools. Servers marked `headless: false` are denied by name.
    - `--no-auto-update`, which keeps the pinned CLI version.

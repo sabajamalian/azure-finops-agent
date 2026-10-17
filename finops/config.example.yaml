@@ -1,7 +1,9 @@
 # yaml-language-server: $schema=./schemas/config.schema.json
 #
-# Copy to finops/config.yaml and fill in your tenant and subscriptions. Tenant and subscription IDs
-# aren't secrets, but keep this repository private: issues and artifacts will contain spend data.
+# `finops init` writes finops/config.yaml from this file with your tenant and subscriptions filled in.
+# To do it by hand, copy it there and replace the placeholder IDs.
+# Tenant and subscription IDs aren't secrets, but keep this repository private: issues and artifacts
+# will contain spend data.
 version: 1
 
 agent:

@@ -161,8 +161,8 @@ def load_config(path: Path | None = None) -> Config:
     p = path or config_path()
     if not p.exists():
         raise ConfigError(
-            f"{p} not found. Copy finops/config.example.yaml to finops/config.yaml and fill in your tenant "
-            "and subscriptions, or set FINOPS_CONFIG."
+            f"{p} not found. Run `finops init` to create it from your az login, copy "
+            "finops/config.example.yaml and fill it in, or set FINOPS_CONFIG."
         )
     data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     try:

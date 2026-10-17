@@ -86,7 +86,7 @@ The post job also refuses to:
 
 The audit log masks any field named `token`, `access_token`, `refresh_token`, `id_token`, `client_secret`, or `secret`.
 
-**Copilot credentials.** With no `COPILOT_GITHUB_TOKEN` secret, Copilot uses the job's own `GITHUB_TOKEN` through `copilot-requests: write`. That token is short-lived, but it means anyone who can start `finops-run` spends Copilot requests billed to the repository owner or organization. With a PAT, the cost lands on the PAT owner, and the PAT is a long-lived credential to rotate. See [Copilot authentication](setup.md#copilot-authentication).
+**Copilot credentials.** With no `COPILOT_GITHUB_TOKEN` secret, Copilot uses the job's own `GITHUB_TOKEN` through `copilot-requests: write`. That token is short-lived, but it means anyone who can start `finops-run` spends Copilot requests billed to the repository owner or organization. With a PAT, the cost lands on the PAT owner, and the PAT is a long-lived credential to rotate. See [Copilot authentication](headless.md#copilot-authentication).
 
 ## Who can start a run
 

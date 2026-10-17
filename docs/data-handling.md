@@ -46,7 +46,7 @@ Inside one copy there's no per-user partition. Anyone with read access to the re
 
 **Session sync.** Copilot CLI and the GitHub Copilot app sync local sessions to your GitHub account by default, and those sessions include the spend figures the agent returned. To keep them local, turn off `remoteExport` in the [Copilot CLI config](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference). On Copilot Business and Enterprise, sessions only sync if the **Store local sessions in the Cloud** policy allows it. Headless runs pass `--no-remote-export`, so they never sync. See [About GitHub Copilot session data](https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data).
 
-**Deleting the whole agent.** Follow [Teardown](setup.md#teardown) for the Azure identity, role assignments, environment, and labels, then delete the repository, which removes its issues, logs, and artifacts. Ask everyone who used it interactively to delete `.finops/` and any sessions they want gone. GitHub's and Microsoft's own backup retention applies after deletion; this template can't shorten it, and their completion timelines are in their own policies.
+**Deleting the whole agent.** Follow [Teardown](headless.md#teardown) for the Azure identity, role assignments, environment, and labels, then delete the repository, which removes its issues, logs, and artifacts. Ask everyone who used it interactively to delete `.finops/` and any sessions they want gone. GitHub's and Microsoft's own backup retention applies after deletion; this template can't shorten it, and their completion timelines are in their own policies.
 
 ## Model hosting and data residency
 

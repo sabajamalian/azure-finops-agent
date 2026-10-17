@@ -1,17 +1,40 @@
 # Setup
 
-Interactive use needs four things: a config file, the MCP server installed, `az login`, and Copilot started with the `azure-finops` agent. Headless runs in GitHub Actions add one script, `scripts/setup/setup.sh`. It creates a read-only managed identity and configures the repository.
+This page gets the agent running on your machine with your own `az login`. Running it from GitHub issues, on a schedule, or on anomalies is a second step covered in [headless runs](headless.md).
 
+- [Checklist](#checklist)
 - [Prerequisites](#prerequisites)
 - [1. Create your repository](#1-create-your-repository)
-- [2. Configure](#2-configure)
-- [3. Install and check access](#3-install-and-check-access)
-- [4. Use it interactively](#4-use-it-interactively)
-- [5. Set up headless runs](#5-set-up-headless-runs)
-- [6. Turn on automations](#6-turn-on-automations)
+- [2. Install](#2-install)
+- [3. Configure](#3-configure)
+- [4. Check access](#4-check-access)
+- [5. Use it interactively](#5-use-it-interactively)
+- [EA and MCA cost visibility](#ea-and-mca-cost-visibility)
 - [Add, limit, or remove MCP servers](#add-limit-or-remove-mcp-servers)
-- [Teardown](#teardown)
 - [Troubleshooting](#troubleshooting)
+
+## Checklist
+
+Copy this into an issue or your notes and tick it off.
+
+**Local use**
+
+- [ ] Private repository created from the template
+- [ ] `.github/CODEOWNERS` points at a real team, and the default branch requires Code Owner review
+- [ ] Virtual environment created and `pip install ./mcp-server` done (or the dev container is running)
+- [ ] Copilot CLI installed and signed in
+- [ ] `az login --tenant <tenant-id>` done
+- [ ] `finops init` wrote `finops/config.yaml`, and it's committed
+- [ ] `finops doctor --skip-github` shows no failures
+- [ ] First question answered in `copilot --agent azure-finops`
+
+**Headless runs** (see [headless runs](headless.md))
+
+- [ ] `scripts/setup/setup.sh --dry-run` reviewed, then `scripts/setup/setup.sh` run
+- [ ] Copilot authentication decided: workflow token or a fine-grained PAT
+- [ ] On EA or MCA billing, subscription readers can see charges
+- [ ] A manual `finops-run` posted an answer issue
+- [ ] Automations you want turned on in a reviewed pull request
 
 ## Prerequisites
 
@@ -19,10 +42,10 @@ Interactive use needs four things: a config file, the MCP server installed, `az 
 | --- | --- |
 | A GitHub Copilot plan that includes Copilot CLI. On Copilot Business or Enterprise, the CLI policy must be enabled for you. | The agent runs in Copilot CLI or VS Code. |
 | Python 3.11 or later (the workflows use 3.12) | The FinOps MCP server and the `finops` CLI. |
-| Node.js 22 or later | Copilot CLI, and `npx` for the Azure MCP Server. |
-| Azure CLI | Local sign-in, and identity setup for headless runs. |
+| Azure CLI | Your sign-in, and `finops init`. |
 | Reader and Cost Management Reader on each subscription you want to analyze | Cost queries, Resource Graph, Activity Log, and Advisor. Reader alone also works. |
-| GitHub CLI, signed in with admin rights on the repository | Only for `setup.sh`. |
+| Node.js 22 or later (optional) | Installing Copilot CLI with `npm`, and `npx` for the Azure MCP Server. See [Without Node.js](#without-nodejs). |
+| GitHub CLI | Creating the repository from the command line, and later `setup.sh`. |
 
 On EA or MCA billing, subscription-level roles aren't enough by themselves. See [EA and MCA cost visibility](#ea-and-mca-cost-visibility).
 
@@ -32,24 +55,86 @@ Create a **private** repository from this template (**Use this template > Create
 
 ```bash
 gh repo create my-org/finops --private --template sabajamalian/azure-finops-agent --clone
+cd finops
 ```
 
 Keep it private or internal. Issues, workflow logs, and run artifacts contain spend data, and the post job refuses to publish to a public repository unless you override it. One copy of the template serves one tenant; see [data handling](data-handling.md#isolation).
 
 Then protect what the agent is allowed to do. Replace `@your-org/finops-owners` in `.github/CODEOWNERS` with a real team or user. On the default branch, add a branch protection rule or ruleset that requires a pull request with **Require review from Code Owners**. That puts the config, allowlist, automations, agent profile, and workflows behind an owner's review.
 
-## 2. Configure
+## 2. Install
+
+Pick one of the options below. All of them end with `finops` and `azure-finops-mcp` on your `PATH`.
+
+### macOS and Linux
 
 ```bash
-cp finops/config.example.yaml finops/config.yaml
+python3 -m venv .venv && source .venv/bin/activate
+pip install ./mcp-server
+npm install --global @github/copilot
 ```
 
-Fill in `azure.tenant_id` and `azure.subscriptions`. The other settings have working defaults:
+Use the `.venv` name: `.vscode/mcp.json` starts the server from `.venv/bin/azure-finops-mcp`, and `finops doctor` warns if it isn't there.
+
+Installing the latest Copilot CLI is fine for interactive use. The workflows pin a tested version (currently `1.0.98`, in `.github/workflows/finops-run.yml`); if the agent behaves differently locally than in Actions, try `npm install --global @github/copilot@1.0.98`.
+
+### Windows
+
+In PowerShell:
+
+```powershell
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install ./mcp-server
+npm install --global @github/copilot
+```
+
+Then change the `azure-finops` command in `.vscode/mcp.json` to `${workspaceFolder}/.venv/Scripts/azure-finops-mcp.exe`. Copilot CLI doesn't use that file, so only VS Code needs the change.
+
+The CLI, the MCP server, and interactive use work natively on Windows. `scripts/setup/setup.sh` for [headless runs](headless.md) is a Bash script: run it from WSL, Git Bash, or a Codespace.
+
+### Option: dev container or Codespace
+
+The repository includes `.devcontainer/devcontainer.json` with Python 3.12, Node.js, the Azure CLI, the GitHub CLI, and Copilot CLI. Open the folder in VS Code and pick **Reopen in Container**, or create a Codespace from your repository. Setup creates `.venv`, installs the server, and puts it on the `PATH`, so skip straight to [Configure](#3-configure). Sign in with `az login --use-device-code` inside the container.
+
+### Without Node.js
+
+Node.js is only used for two things:
+
+- Installing Copilot CLI with `npm`. You can install it another way instead; see [Installing GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli).
+- Starting the optional Azure MCP Server with `npx`. Without `npx`, the agent still works: the FinOps server covers costs, changes, anomalies, and Advisor on its own. You lose retail price lookups. `finops doctor` reports a missing `npx` as a warning, not a failure.
+
+The first time the agent starts, `npx` downloads the Azure MCP Server package, which can take a minute. To do that ahead of time:
+
+```bash
+npx -y @azure/mcp@3.0.0 --help > /dev/null
+```
+
+## 3. Configure
+
+Sign in to the tenant you want to analyze, then let `finops init` write the config from the subscriptions you can see:
+
+```bash
+az login --tenant <tenant-id>
+finops init
+```
+
+It lists the enabled subscriptions in your current tenant and asks which ones to include. Non-interactive forms:
+
+```bash
+finops init --all                                    # every enabled subscription in the tenant
+finops init --subscription contoso-prod --subscription 2222...   # by name or ID, repeatable
+finops init --tenant <tenant-id> --timezone Europe/London --force
+```
+
+It starts from `finops/config.example.yaml`, keeps its comments, and fills in `azure.tenant_id`, `azure.subscriptions`, and `timezone` (your machine's time zone unless you pass `--timezone`). It won't overwrite an existing `finops/config.yaml` without `--force`. To write the file by hand instead, copy `finops/config.example.yaml` to `finops/config.yaml` and replace the placeholder IDs.
+
+The other settings have working defaults:
 
 | Setting | Default | Notes |
 | --- | --- | --- |
 | `azure.cost_basis` | `ActualCost` | `AmortizedCost` spreads reservation and savings plan purchases across the term. |
-| `timezone` | `America/Los_Angeles` | Used for report dates and as the default for schedules. Cost data itself is UTC. |
+| `timezone` | Your machine's time zone with `finops init` | Used for report dates and as the default for schedules. Cost data itself is UTC. |
 | `agent.model` | CLI default | Pin a model for headless runs so scheduled reports stay comparable. |
 | `anomaly.*` | see file | Detector thresholds and the daily investigation cap. See [architecture](architecture.md#anomaly-detector). |
 | `destinations` | `finops-reports`, `finops-actions` | Where headless runs may post. Each is a set of issue labels. |
@@ -61,88 +146,35 @@ Your editor validates the file against `finops/schemas/config.schema.json`. Comm
 
 Optionally, add team context such as owners and cost centers in `finops/context/`. Read [finops/context/README.md](../finops/context/README.md) first: anything you put there is sent to the model on every run.
 
-## 3. Install and check access
+## 4. Check access
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install ./mcp-server
-npm install --global @github/copilot@1.0.98   # the version the workflows pin
-az login --tenant <tenant-id>
 finops doctor --skip-github
 ```
 
-`finops doctor` checks the config, the automation files, the agent profile against `finops/allowlist.yaml`, and the tools on your `PATH`. It also checks Azure access to every configured subscription: Cost Management, Resource Graph, Advisor, and the Activity Log. Each failure comes with a fix. Run it again with `GITHUB_TOKEN` and `GITHUB_REPOSITORY` set (or drop `--skip-github`) to also check repository visibility and the `finops` environment.
+`finops doctor` checks the config, the automation files, the agent profile against `finops/allowlist.yaml`, the VS Code server path, and the tools on your `PATH`. It then checks that `az` is signed in to the configured tenant, and that each subscription can reach Cost Management, Resource Graph, Advisor, and the Activity Log. Each failure comes with a fix. If a subscription is unreachable altogether, it shows one line for it instead of four errors.
 
-## 4. Use it interactively
-
-**Copilot CLI**, from the repository root:
+Once you've set up [headless runs](headless.md), drop `--skip-github` to also check repository visibility and the `finops` environment. It needs a token and the repository name:
 
 ```bash
-copilot --agent azure-finops
+GITHUB_TOKEN=$(gh auth token) GITHUB_REPOSITORY=my-org/finops finops doctor
 ```
 
-Copilot asks you to trust the folder on first use. The agent profile (`.github/agents/azure-finops.agent.md`) starts the FinOps MCP server and the read-only Azure MCP Server for you. Copilot asks before each tool call. Every FinOps tool is read-only, so you can pre-approve the whole server:
+## 5. Use it interactively
+
+**Copilot CLI**, from the repository root:
 
 ```bash
 copilot --agent azure-finops --allow-tool azure-finops
 ```
 
-**VS Code**: open the folder. `.vscode/mcp.json` defines the same two servers. Pick **azure-finops** from the agent picker in Chat. VS Code has to find `azure-finops-mcp` on its `PATH`, so start it from the activated virtual environment (`code .`) or put the full path in `.vscode/mcp.json`.
+Copilot asks you to trust the folder on first use. The agent profile (`.github/agents/azure-finops.agent.md`) starts the FinOps MCP server and the read-only Azure MCP Server for you. `--allow-tool azure-finops` pre-approves the FinOps server's tools, which are all read-only. Leave it off if you'd rather approve each call.
+
+**VS Code**: open the folder. `.vscode/mcp.json` defines the same two servers and starts the FinOps server from `.venv`. Pick **azure-finops** from the agent picker in Chat. If you installed somewhere other than `.venv`, put the full path to `azure-finops-mcp` in `.vscode/mcp.json`.
 
 Your sign-in decides what the agent can see. The MCP servers use your `az login` and never change Azure resources. See [usage](usage.md) for example questions.
 
-## 5. Set up headless runs
-
-Headless runs answer questions from issues, run scheduled automations, and investigate anomalies. Preview the setup first, then run it:
-
-```bash
-scripts/setup/setup.sh --dry-run
-scripts/setup/setup.sh
-```
-
-The dry run prints every command that would change something and only runs read-only queries. The script is safe to re-run. It does the following:
-
-**In Azure**
-
-1. Creates resource group `rg-finops-agent` in the first configured subscription.
-2. Deploys `scripts/setup/identity.bicep`: a user-assigned managed identity, `id-finops-agent`, with one federated credential. Its subject is `repo:<owner>/<repo>:environment:finops`, so only jobs that use the `finops` environment in this repository can sign in as it.
-3. Deploys `scripts/setup/roles.bicep` to every configured subscription, assigning Reader and Cost Management Reader. These are the only roles the identity gets.
-
-You need rights to create role assignments on each subscription: Owner, User Access Administrator, or Role Based Access Control Administrator. If another team owns Azure, give them the two Bicep files. Then run the script with `--skip-azure --client-id <identity client id>`.
-
-**In GitHub**
-
-1. Creates the `finops` environment and restricts it to the default branch.
-2. Sets the environment variables `AZURE_CLIENT_ID` and `AZURE_TENANT_ID`. They aren't secrets, and the workflows use OIDC, so no Azure secret is stored.
-3. Creates the `finops-ask` label. The question issue form needs it to exist.
-4. Sets the repository variable `FINOPS_ENABLED=true`, which every workflow checks before doing anything. Skip this with `--no-enable`. The shipped automations are disabled, so turning this on doesn't use any premium requests by itself. It enables questions from issues and the daily anomaly scan, which doesn't use Copilot.
-5. Reports how Copilot will authenticate (next section).
-
-| Option | Default |
-| --- | --- |
-| `--repo OWNER/NAME` | The current repository |
-| `--resource-group`, `--location` | `rg-finops-agent`, `eastus` |
-| `--identity-subscription`, `--identity-name` | First configured subscription, `id-finops-agent` |
-| `--skip-azure --client-id ID` | Use an existing identity |
-| `--skip-github` | Azure only |
-| `--no-enable` | Leave `FINOPS_ENABLED` alone |
-
-### Copilot authentication
-
-The run job passes the `COPILOT_GITHUB_TOKEN` environment secret to Copilot CLI if it exists. Otherwise it passes the job's own `GITHUB_TOKEN`, which has the `copilot-requests: write` permission. Most repositories need no token at all.
-
-| | Workflow `GITHUB_TOKEN` (default) | Fine-grained PAT |
-| --- | --- | --- |
-| Setup | None | Create a fine-grained PAT with the **Copilot Requests** permission, then `gh secret set COPILOT_GITHUB_TOKEN --env finops` |
-| Who pays | Personal repository: the owner's Copilot seat. Organization repository: metered to the organization. | The PAT owner's seat, and their license decides the models available. |
-| Requirement | In an organization, an owner must allow **Copilot CLI > Allow use of Copilot CLI billed to the organization** in Copilot policies. It's on by default where Copilot CLI is enabled. | The PAT owner has a Copilot license. Classic PATs (`ghp_`) don't work. |
-| Credential | Short-lived, issued per job | Long-lived. Set an expiry and rotate it. |
-
-Use the PAT if your organization won't enable the billing policy, or if usage must count against a specific user. User-level Copilot budgets don't apply to organization-billed usage, so use [cost centers](https://docs.github.com/en/billing/concepts/cost-centers) to cap it. See GitHub's [Copilot CLI in GitHub Actions](https://docs.github.com/en/copilot/concepts/agent-capabilities/agent-powered-workflows-and-operations/copilot-cli-in-github-actions) for details.
-
-The workflow log of each run says which credential it used.
-
-### EA and MCA cost visibility
+## EA and MCA cost visibility
 
 Cost Management Reader on a subscription only returns costs if the billing account lets subscription users see charges:
 
@@ -150,23 +182,6 @@ Cost Management Reader on a subscription only returns costs if the billing accou
 - **Microsoft Customer Agreement**: a billing profile owner sets the profile's **Azure charges** policy so that users with access to subscriptions can view charges.
 
 Without this, `finops doctor` and the agent report a permission error from Cost Management, and the error includes the fix. See Microsoft's [Assign access to Cost Management data](https://learn.microsoft.com/azure/cost-management-billing/costs/assign-access-acm-data).
-
-### Check a headless run
-
-```bash
-gh workflow run finops-run.yml -f kind=manual -f question="What did each subscription cost last month?"
-```
-
-Or use **Actions > finops-run > Run workflow**. The answer is posted as a new issue labeled `finops-report`. If something fails, the run comments on a single open issue labeled `finops-failure` and links the run. The task record artifact holds the transcript and audit log; see [architecture](architecture.md#task-record).
-
-## 6. Turn on automations
-
-Automations are YAML files in `finops/automations/`. The two shipped ones are disabled:
-
-- `weekly-spend-summary.yaml` posts a weekly report.
-- `investigate-anomalies.yaml` lets the daily anomaly scan start investigations.
-
-Set `enabled: true` in a pull request. With the CODEOWNERS rule from step 1, an owner has to approve it, and each run records which pull request approved the file. Check your changes with `finops automations validate`. The file format, schedule rules, and limits are in [finops/automations/README.md](../finops/automations/README.md).
 
 ## Add, limit, or remove MCP servers
 
@@ -180,40 +195,18 @@ To add a server:
 
 Set `headless: false` on a server to keep it out of Actions runs while still using it interactively. To remove the Azure MCP Server, delete it from all three files; the FinOps server covers Advisor on its own.
 
-## Teardown
-
-**Azure**. Remove the role assignments before you delete the identity; otherwise they become orphaned "Identity not found" entries:
-
-```bash
-PRINCIPAL_ID=$(az identity show -g rg-finops-agent -n id-finops-agent --subscription <identity-sub> --query principalId -o tsv)
-for sub in $(finops config subscriptions); do
-  az role assignment delete --assignee "$PRINCIPAL_ID" --scope "/subscriptions/$sub"
-  az deployment sub delete --subscription "$sub" --name finops-agent-roles
-done
-az group delete --name rg-finops-agent --subscription <identity-sub>
-```
-
-**GitHub**. Deleting the environment also deletes its variables and secrets:
-
-```bash
-gh variable delete FINOPS_ENABLED
-gh api --method DELETE "repos/<owner>/<repo>/environments/finops"
-for l in finops finops-ask finops-report finops-anomaly finops-action finops-failure; do gh label delete "$l" --yes; done
-```
-
-If you used a PAT, revoke it. Issues, artifacts, and logs that hold spend data are covered in [data handling](data-handling.md#what-is-stored-where).
-
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 | --- | --- |
-| Workflow runs show as skipped | `FINOPS_ENABLED` isn't `true`. Run `gh variable set FINOPS_ENABLED --body true`. |
-| `Branch "x" is not allowed to deploy to finops` | The `finops` environment only accepts the default branch. Run the workflow from the default branch. |
-| Azure login: `No matching federated identity record found` | The federated subject doesn't match. It must be `repo:<owner>/<repo>:environment:finops`. If you renamed or transferred the repository, run `setup.sh` again. |
-| Copilot: `Authentication failed` | Organization repository: ask an owner to enable the Copilot CLI billing policy, or add a PAT. With a PAT: check that it has Copilot Requests, hasn't expired, and belongs to a licensed user. |
-| Copilot: `Classic Personal Access Tokens (ghp_) are not supported` | Create a fine-grained PAT instead. |
+| `finops doctor`: `config ids` fails | `finops/config.yaml` still has the example's placeholder IDs. Run `finops init --force`. |
+| `finops doctor`: `az tenant` fails | `az` is signed in to a different tenant than the config. Run the `az login --tenant` command it prints. |
+| `finops doctor`: a subscription shows `all data sources` failing | Your sign-in can't see that subscription. Check `az account list -o table`, or remove it from the config. |
+| VS Code can't start `azure-finops` | `.vscode/mcp.json` points at `.venv/bin/azure-finops-mcp`. Create the virtual environment there, or edit the path (Windows: `.venv/Scripts/azure-finops-mcp.exe`). |
+| The first answer takes a minute to start | `npx` is downloading the Azure MCP Server. Prefetch it as shown in [Without Node.js](#without-nodejs). |
+| Copilot asks before every tool call | Start it with `--allow-tool azure-finops`. |
 | Cost queries return 401 or 403 | Missing Cost Management Reader, or EA/MCA charge visibility is off. Run `finops doctor`. |
-| An issue labeled `finops-ask` gets no answer | Only owners, members, and collaborators can ask. Check that the `finops-ask` label exists and that `FINOPS_ENABLED` is `true`. |
 | The last day or two look low | Cost Management data for the most recent 1 to 2 days is usually incomplete. Reports state the date the data runs through, and the anomaly detector skips those days. |
 | `429` or "rate limited" errors | Cost Management limits queries per scope. The server waits and retries, and caches results for 15 minutes. Ask for fewer, broader queries. |
-| `The agent ... without submitting a result` | The agent timed out, exited early, or never started. Read `transcript.md` and `copilot-logs/` in the task record artifact. Authentication, timeout, and model errors show up there. |
+
+Problems with Actions runs are covered in [headless runs](headless.md#troubleshooting).

@@ -47,7 +47,7 @@ def _summary(text: str) -> None:
 def _config_or_exit_ok():
     """Unconfigured template repos exit 0 so scheduled workflows don't fail before setup."""
     if not config_path().exists():
-        print(f"{config_path()} not found; nothing to do until the agent is configured (see docs/setup.md).")
+        print(f"{config_path()} not found; nothing to do until you run `finops init`.")
         raise SystemExit(0)
     return load_config()
 
@@ -280,6 +280,33 @@ def cmd_doctor(a) -> int:
     return 1 if any(c.status == "fail" for c in checks) else 0
 
 
+def cmd_init(a) -> int:
+    from .init import InitError, init_config
+
+    ask = input if sys.stdin.isatty() else None
+    try:
+        path = init_config(
+            repo_root(),
+            tenant=a.tenant,
+            picks=a.subscription,
+            all_subs=a.all,
+            timezone=a.timezone,
+            force=a.force,
+            ask=ask,
+        )
+    except InitError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    config = load_config(path)
+    print(
+        f"\nWrote {path} with {len(config.subscription_ids())} subscription(s), time zone {config.timezone}."
+    )
+    print("Next:")
+    print("  finops doctor --skip-github")
+    print("  copilot --agent azure-finops --allow-tool azure-finops")
+    return 0
+
+
 def cmd_schemas(a) -> int:
     from .schemas import export
 
@@ -393,6 +420,16 @@ def build_parser() -> argparse.ArgumentParser:
     au.add_argument("action", choices=["list", "validate"])
     au.add_argument("--json", action="store_true")
     au.set_defaults(fn=cmd_automations)
+
+    ini = sub.add_parser("init", help="write finops/config.yaml from the subscriptions `az login` can see")
+    ini.add_argument("--tenant", help="tenant ID (default: the tenant az is signed in to)")
+    ini.add_argument(
+        "--subscription", action="append", help="subscription ID or name to include (repeatable)"
+    )
+    ini.add_argument("--all", action="store_true", help="include every enabled subscription in the tenant")
+    ini.add_argument("--timezone", help="IANA time zone for reports and schedules (default: this machine's)")
+    ini.add_argument("--force", action="store_true", help="overwrite an existing finops/config.yaml")
+    ini.set_defaults(fn=cmd_init)
 
     doc = sub.add_parser("doctor", help="check configuration and access")
     doc.add_argument("--skip-azure", action="store_true")

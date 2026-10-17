@@ -27,21 +27,49 @@ flowchart LR
 
 ## Quickstart
 
-Interactive use, with your own `az login`. You need Python 3.11+, Node.js 22+, the Azure CLI, a Copilot plan with Copilot CLI, and Reader plus Cost Management Reader on the subscriptions.
+Interactive use, with your own `az login`. You need Python 3.11+, the Azure CLI, Copilot CLI with a Copilot plan, and Reader plus Cost Management Reader on the subscriptions. Node.js is only needed for `npm` and the optional Azure MCP Server.
 
 ```bash
 gh repo create my-org/finops --private --template sabajamalian/azure-finops-agent --clone
 cd finops
-cp finops/config.example.yaml finops/config.yaml   # set azure.tenant_id and azure.subscriptions
 python3 -m venv .venv && source .venv/bin/activate
 pip install ./mcp-server
-npm install --global @github/copilot@1.0.98
+npm install --global @github/copilot
 az login --tenant <tenant-id>
+finops init                # writes finops/config.yaml from the subscriptions you can see
 finops doctor --skip-github
-copilot --agent azure-finops
+copilot --agent azure-finops --allow-tool azure-finops
 ```
 
-Then ask something like "Why did spend in contoso-prod go up last week?" Headless runs (issue questions, schedules, anomalies) need one more step: `scripts/setup/setup.sh` creates a read-only managed identity and configures the repository. See [setup](docs/setup.md#5-set-up-headless-runs).
+`--allow-tool azure-finops` pre-approves the FinOps server's tools, which are all read-only; without it Copilot asks before every call. On Windows, or to skip the local install, open the repository in a [dev container or Codespace](docs/setup.md#option-dev-container-or-codespace). The full walkthrough, with a checklist, is in [setup](docs/setup.md).
+
+Headless runs (issue questions, schedules, anomalies) need one more step: `scripts/setup/setup.sh` creates a read-only managed identity and configures the repository. See [headless runs](docs/headless.md).
+
+### What an answer looks like
+
+This is the agent's answer format, filled in with tool output from the synthetic test tenant (`FINOPS_FIXTURE_MODE=synthetic`), trimmed for length.
+
+> **You:** Why did spend in contoso-prod go up last week?
+>
+> Spend in contoso-prod rose 6,295.69 USD (+173.2%) for Mar 10 to 16 compared with Mar 3 to 9 (ev-001). A new GPU VM, vm-gpu-train-01, accounts for 94.1% of the increase (ev-005), and Log Analytics ingestion in rg-shared most of the rest.
+>
+> | Service | Mar 3 to 9 | Mar 10 to 16 | Change | Share of change |
+> | --- | ---: | ---: | ---: | ---: |
+> | Virtual Machines | 1,368.28 | 7,287.90 | +5,919.61 | 94.0% |
+> | Log Analytics | 264.94 | 632.08 | +367.14 | 5.8% |
+> | SQL Database | 967.95 | 981.56 | +13.61 | 0.2% |
+>
+> **Likely cause (medium confidence):** alice@contoso.com created vm-gpu-train-01 (NC6s v3) in rg-ml through the Azure portal on Mar 12 at 09:36 UTC (ev-009). That lines up in time and resource group with the increase, but correlation isn't proof, so confirm with alice.
+>
+> Actual cost, USD, UTC days. Mar 15 and 16 may still be incomplete.
+>
+> **Evidence**
+>
+> - ev-001: Cost Management by service, subscription contoso-prod, Mar 3 to 16, ActualCost, USD
+> - ev-005: Cost Management by resource, same frame
+> - ev-009: Activity Log, rg-ml, Mar 9 to 13
+>
+> Figures come from Azure Cost Management and Advisor via read-only queries; verify before acting.
 
 ## Before you use it
 
@@ -54,7 +82,8 @@ Then ask something like "Why did spend in contoso-prod go up last week?" Headles
 
 | Doc | What's in it |
 | --- | --- |
-| [Setup](docs/setup.md) | Prerequisites, config, interactive use, headless runs, teardown |
+| [Setup](docs/setup.md) | Checklist, prerequisites, config, local install (macOS, Linux, Windows, dev container), interactive use |
+| [Headless runs](docs/headless.md) | `setup.sh`, Copilot authentication in Actions, automations, teardown |
 | [Usage](docs/usage.md) | Example questions, issue questions, automations, anomaly detection, CLI reference |
 | [Architecture](docs/architecture.md) | MCP server, tools, headless run flow, task record, detector, design decisions, what's not in this version |
 | [Security](docs/security.md) | Permissions, who can start a run, prompt injection, supply chain, known limitations |
@@ -66,10 +95,11 @@ Then ask something like "Why did spend in contoso-prod go up last week?" Headles
 | --- | --- |
 | [`.github/agents/azure-finops.agent.md`](.github/agents/azure-finops.agent.md) | Agent profile: scope, financial rules, answer format, allowed tools |
 | [`.github/workflows/`](.github/workflows) | `finops-run` (headless runs), `finops-ask`, `finops-dispatch`, `finops-anomaly`, `finops-evals`, `ci` |
-| [`mcp-server/`](mcp-server) | The FinOps MCP server and `finops` CLI (Python) |
+| [`mcp-server/`](mcp-server/README.md) | The FinOps MCP server and `finops` CLI (Python) |
 | [`finops/`](finops) | Config example, tool allow-list, automations, context files, JSON schemas |
 | [`scripts/setup/`](scripts/setup) | `setup.sh` and Bicep for the managed identity and role assignments |
 | [`evals/`](evals/README.md) | Agent eval cases against synthetic data |
+| [`.devcontainer/`](.devcontainer/devcontainer.json) | Dev container with Python, Node, Azure CLI, GitHub CLI, and Copilot CLI |
 
 ## Development
 
@@ -78,4 +108,4 @@ pip install -e "./mcp-server[dev]"
 cd mcp-server && ruff format --check . && ruff check . && pytest
 ```
 
-CI also checks that the JSON schemas are current (`finops schemas export --check`), that the agent profile matches the allow-list (`finops check-agent-profile`), that automations are valid, and runs actionlint on the workflows.
+Changes are listed in [CHANGELOG.md](CHANGELOG.md). CI also checks that the JSON schemas are current (`finops schemas export --check`), that the agent profile matches the allow-list (`finops check-agent-profile`), that automations are valid, and runs actionlint on the workflows.

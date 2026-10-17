@@ -18,7 +18,7 @@ Ask the agent in Copilot CLI or VS Code for interactive analysis. Use GitHub iss
 copilot --agent azure-finops
 ```
 
-Or pick **azure-finops** in VS Code Chat. Setup is in [setup](setup.md#4-use-it-interactively). Example questions:
+Or pick **azure-finops** in VS Code Chat. Setup is in [setup](setup.md#5-use-it-interactively). Example questions:
 
 | Task | Ask |
 | --- | --- |
@@ -42,7 +42,7 @@ Describe what you want in plain words: "Every Monday at 9, post last week's spen
 
 ## Ask from a GitHub issue
 
-Requires [headless setup](setup.md#5-set-up-headless-runs).
+Requires [headless setup](headless.md).
 
 1. Open an issue with the **Ask the FinOps agent** form, or add the `finops-ask` label to an issue you wrote.
 2. The agent answers in a comment, usually within a few minutes. The workflow run is linked in the comment footer.
@@ -58,7 +58,7 @@ Automations are reviewed YAML files in `finops/automations/`. There are two trig
 - **schedule**: a cron in a time zone, or the first or last business day of the month. `finops-dispatch` runs hourly, looks back over a window in case Actions delayed a run, and starts one `finops-run` per due slot. Each slot runs once.
 - **anomaly**: a filter (minimum impact, minimum percent, subscriptions, services, resource groups) that decides which detected anomalies get an investigation.
 
-Each run posts its report as an issue to the automation's destinations. The shipped examples are disabled; see [setup](setup.md#6-turn-on-automations) to turn them on. The file format, examples, and limits are in [finops/automations/README.md](../finops/automations/README.md).
+Each run posts its report as an issue to the automation's destinations. The shipped examples are disabled; see [headless runs](headless.md#3-turn-on-automations) to turn them on. The file format, examples, and limits are in [finops/automations/README.md](../finops/automations/README.md).
 
 ```bash
 finops automations list        # name, trigger, next runs, last run (needs GITHUB_TOKEN for "last run")
@@ -103,6 +103,7 @@ Treat the figures as you would a Cost Management export: accurate for the query,
 
 | Command | Purpose |
 | --- | --- |
+| `finops init [--all \| --subscription NAME_OR_ID ...] [--tenant ID] [--timezone TZ] [--force]` | Write `finops/config.yaml` from the subscriptions your `az login` can see. Prompts for a choice when run in a terminal. |
 | `finops doctor [--skip-azure] [--skip-github]` | Check config, automations, agent profile, schemas, required commands, the Copilot token, Azure access, and GitHub settings. |
 | `finops automations list\|validate [--json]` | List automations with next run times, or validate them. |
 | `finops detect --output anomalies.json` | Run the anomaly detector locally with your `az login`. |
@@ -127,4 +128,4 @@ Or run the **finops-evals** workflow. Each case uses premium requests. Details a
 
 ## Cost of running it
 
-The Azure side is free: Cost Management, Resource Graph, Advisor, and Activity Log reads have no charge, and the identity costs nothing. Copilot is the cost. Each interactive prompt, issue question, scheduled report, and anomaly investigation uses premium requests from the seat or organization that authenticates the run (see [Copilot authentication](setup.md#copilot-authentication)). Use `max_investigations_per_day` and the automation schedules to keep that predictable.
+The Azure side is free: Cost Management, Resource Graph, Advisor, and Activity Log reads have no charge, and the identity costs nothing. Copilot is the cost. Each interactive prompt, issue question, scheduled report, and anomaly investigation uses premium requests from the seat or organization that authenticates the run (see [Copilot authentication](headless.md#copilot-authentication)). Use `max_investigations_per_day` and the automation schedules to keep that predictable.

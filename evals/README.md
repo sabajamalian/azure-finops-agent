@@ -17,7 +17,7 @@ finops evals run --repeat 3 --model <model-id>       # every case, three times e
 
 Results go to `.finops/evals/` (gitignored): `results.json`, `summary.md`, and one directory per case and run with the same artifacts a real run produces (`prompt.md`, `result.json`, `evidence.jsonl`, `audit.jsonl`, `transcript.md`, `tool-results.jsonl`).
 
-In GitHub Actions, run the **finops-evals** workflow. Copilot CLI authenticates with the job's `GITHUB_TOKEN` (or the optional `COPILOT_GITHUB_TOKEN` secret in the `finops` environment; see [docs/setup.md](../docs/setup.md#copilot-authentication)), and there's no Azure login. Results are uploaded as an artifact; the data is synthetic, so the artifact holds no real spend.
+In GitHub Actions, run the **finops-evals** workflow. Copilot CLI authenticates with the job's `GITHUB_TOKEN` (or the optional `COPILOT_GITHUB_TOKEN` secret in the `finops` environment; see [docs/headless.md](../docs/headless.md#copilot-authentication)), and there's no Azure login. Results are uploaded as an artifact; the data is synthetic, so the artifact holds no real spend.
 
 ## The synthetic tenant
 

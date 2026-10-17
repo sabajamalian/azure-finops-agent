@@ -233,8 +233,9 @@ def test_resubmit_replaces_result(rt_out):
 
 @pytest.fixture
 def which(monkeypatch):
-    found = {"azure-finops-mcp", "copilot", "az"}
+    found = {"azure-finops-mcp", "copilot", "az", "npx"}
     monkeypatch.setattr(doctor.shutil, "which", lambda cmd: f"/usr/bin/{cmd}" if cmd in found else None)
+    monkeypatch.setattr(doctor, "_az_tenant", lambda: None)
     return found
 
 
@@ -255,6 +256,9 @@ def healthy(repo, which):
     for rel in (".github/agents/azure-finops.agent.md", "finops/allowlist.yaml", ".vscode/mcp.json"):
         (repo / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(REAL_ROOT / rel, repo / rel)
+    venv_exe = repo / ".venv" / "bin" / "azure-finops-mcp"
+    venv_exe.parent.mkdir(parents=True)
+    venv_exe.touch()
     export(repo)
     return repo
 
@@ -267,7 +271,7 @@ def test_doctor_unconfigured_repo(repo, which):
     checks = by_name(run_doctor(repo, env={}))
     assert checks["config"].status == "fail"
     assert "config.yaml not found" in checks["config"].detail
-    assert checks["config"].fix == "cp finops/config.example.yaml finops/config.yaml and edit it"
+    assert "finops init" in checks["config"].fix
     assert "automations" not in checks
     assert checks["agent profile"].status == "fail"
     assert checks["schemas"].status == "warn" and checks["schemas"].fix == "finops schemas export"
@@ -334,6 +338,80 @@ def test_doctor_tools_on_path(healthy, which):
         checks["az on PATH"].status == "warn" and checks["az on PATH"].detail == "Azure CLI login not found"
     )
     assert checks["azure-finops-mcp on PATH"].status == "ok"
+
+
+def test_doctor_npx_is_optional(healthy, which):
+    which.discard("npx")
+    check = by_name(run_doctor(healthy, skip_azure=True, skip_github=True, env={}))["npx on PATH"]
+    assert check.status == "warn" and "optional" in check.detail
+
+
+def test_doctor_flags_placeholder_ids_and_skips_azure(healthy):
+    cfg = CONFIG.model_dump(mode="json")
+    cfg["azure"]["tenant_id"] = "00000000-0000-0000-0000-000000000000"
+    cfg["azure"]["subscriptions"][0]["id"] = "00000000-0000-0000-0000-000000000001"
+    (healthy / "finops" / "config.yaml").write_text(yaml.safe_dump(cfg))
+    checks = by_name(run_doctor(healthy, skip_github=True, env={}))
+    assert checks["config ids"].status == "fail"
+    assert "00000000-0000-0000-0000-000000000001" in checks["config ids"].detail
+    assert "finops init" in checks["config ids"].fix
+    assert (checks["azure access"].status, checks["azure access"].detail) == (
+        "skip",
+        "fix the config ids first",
+    )
+
+
+def test_doctor_flags_az_tenant_mismatch(healthy, monkeypatch):
+    import azure_finops.runtime as runtime_mod
+
+    monkeypatch.setattr(doctor, "_az_tenant", lambda: "99999999-9999-9999-9999-999999999999")
+    monkeypatch.setattr(runtime_mod, "build_runtime", lambda **kw: pytest.fail("probed Azure"))
+    checks = by_name(run_doctor(healthy, skip_github=True, env={}))
+    assert checks["az tenant"].status == "fail"
+    assert checks["az tenant"].fix == f"az login --tenant {CONFIG.azure.tenant_id}"
+    assert checks["azure access"].detail == "fix the az tenant first"
+
+
+def test_doctor_matching_tenant_is_ok(healthy, monkeypatch):
+    import azure_finops.runtime as runtime_mod
+
+    monkeypatch.setattr(doctor, "_az_tenant", lambda: CONFIG.azure.tenant_id.upper().lower())
+
+    def boom(**kw):
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(runtime_mod, "build_runtime", boom)
+    checks = by_name(run_doctor(healthy, skip_github=True, env={}))
+    assert checks["az tenant"].status == "ok"
+    assert checks["azure access"].detail == "RuntimeError: stop here"
+
+
+def test_doctor_collapses_unreachable_subscription(healthy, monkeypatch):
+    monkeypatch.setenv("FINOPS_FIXTURE_MODE", "synthetic")
+    monkeypatch.setenv("FINOPS_SYNTHETIC_DENY", f"cost:{PROD},arg:{PROD},activity:{PROD}")
+    checks = by_name(run_doctor(healthy, skip_github=True, env={}))
+    bad = checks["contoso-prod: all data sources"]
+    assert bad.status == "fail" and bad.detail.startswith("none reachable.") and bad.fix
+    assert not any(n.startswith("contoso-prod: cost_data") for n in checks)
+    assert checks["contoso-dev: cost_data"].status == "ok"
+
+
+def test_subscription_checks_explain_subscription_not_found():
+    err = {"status": "error", "error": "failed (404): SubscriptionNotFound: could not be found."}
+    res = {"name": "prod", **{cap: err for cap in doctor.CAPS}}
+    [check] = doctor._subscription_checks(res, "abc")
+    assert check.name == "prod: all data sources"
+    assert "az account list" in check.fix and "abc" in check.fix
+
+
+def test_doctor_vscode_mcp_command(healthy):
+    exe = healthy / ".venv" / "bin" / "azure-finops-mcp"
+    exe.unlink()
+    check = by_name(run_doctor(healthy, skip_azure=True, skip_github=True, env={}))["vs code mcp server"]
+    assert check.status == "warn" and ".venv" in check.fix
+    exe.write_text("")
+    check = by_name(run_doctor(healthy, skip_azure=True, skip_github=True, env={}))["vs code mcp server"]
+    assert check.status == "ok"
 
 
 @pytest.mark.parametrize(

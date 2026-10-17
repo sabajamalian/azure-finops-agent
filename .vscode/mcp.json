@@ -2,7 +2,7 @@
   "servers": {
     "azure-finops": {
       "type": "stdio",
-      "command": "azure-finops-mcp",
+      "command": "${workspaceFolder}/.venv/bin/azure-finops-mcp",
       "args": []
     },
     "azure-mcp": {

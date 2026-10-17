@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +21,88 @@ class Check:
     status: str  # ok | warn | fail | skip
     detail: str = ""
     fix: str = ""
+
+
+# The IDs shipped in finops/config.example.yaml.
+PLACEHOLDER_IDS = {f"00000000-0000-0000-0000-00000000000{n}" for n in range(10)}
+CAPS = ("cost_data", "resource_graph", "advisor", "activity_log")
+VSCODE_VENV_PREFIX = "${workspaceFolder}/"
+
+
+def _az_tenant() -> str | None:
+    """Tenant of the current `az login`, or None if az isn't signed in or can't be run."""
+    try:
+        out = subprocess.run(
+            [shutil.which("az") or "az", "account", "show", "--query", "tenantId", "-o", "tsv"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip().lower() or None
+
+
+def _placeholder_ids(config) -> list[str]:
+    ids = [config.azure.tenant_id, *config.subscription_ids()]
+    return [i for i in ids if i.lower() in PLACEHOLDER_IDS]
+
+
+def _vscode_check(root: Path) -> Check | None:
+    """VS Code starts the server from .vscode/mcp.json; warn if that command points at a missing file."""
+    path = root / ".vscode" / "mcp.json"
+    try:
+        spec = json.loads(path.read_text(encoding="utf-8"))["servers"]["azure-finops"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    command = str(spec.get("command", ""))
+    if not command.startswith(VSCODE_VENV_PREFIX):
+        return None
+    target = root / command[len(VSCODE_VENV_PREFIX) :]
+    if target.exists() or target.with_suffix(".exe").exists():
+        return Check("vs code mcp server", "ok", str(target))
+    return Check(
+        "vs code mcp server",
+        "warn",
+        f".vscode/mcp.json runs {command}, which doesn't exist",
+        "Create the virtual environment at .venv (python3 -m venv .venv && .venv/bin/pip install ./mcp-server), "
+        "or edit the command in .vscode/mcp.json (on Windows: ${workspaceFolder}/.venv/Scripts/azure-finops-mcp.exe)",
+    )
+
+
+def _subscription_checks(res: dict, sub_id: str) -> list[Check]:
+    """One line per data source, or a single line when nothing in the subscription is reachable."""
+    failed = {cap: res[cap] for cap in CAPS if res[cap].get("status") != "available"}
+    if len(failed) == len(CAPS):
+        first = res["cost_data"]
+        detail = first.get("missing") or first.get("error", "")
+        errors = " ".join(str(r.get("error", "")) + str(r.get("missing", "")) for r in failed.values())
+        if "SubscriptionNotFound" in errors or "could not be found" in errors:
+            fix = (
+                f"Your sign-in can't see subscription {sub_id}. Check the ID in finops/config.yaml against "
+                "`az account list -o table`, and that `az login` used the configured tenant."
+            )
+        else:
+            fix = (
+                first.get("remediation") or "Check `az login` and the role assignments on this subscription."
+            )
+        return [Check(f"{res['name']}: all data sources", "fail", f"none reachable. {detail}", fix)]
+    out = []
+    for cap in CAPS:
+        r = res[cap]
+        ok = r.get("status") == "available"
+        out.append(
+            Check(
+                f"{res['name']}: {cap}",
+                "ok" if ok else "fail",
+                "" if ok else r.get("missing") or r.get("error", ""),
+                "" if ok else r.get("remediation", ""),
+            )
+        )
+    return out
 
 
 def _github_checks(env: dict[str, str]) -> list[Check]:
@@ -82,7 +166,12 @@ def run_doctor(
         )
     except ConfigError as exc:
         checks.append(
-            Check("config", "fail", str(exc), "cp finops/config.example.yaml finops/config.yaml and edit it")
+            Check(
+                "config",
+                "fail",
+                str(exc),
+                "Run `finops init` after `az login`, or copy finops/config.example.yaml to finops/config.yaml and edit it",
+            )
         )
 
     if config is not None:
@@ -113,9 +202,13 @@ def run_doctor(
         ("azure-finops-mcp", "MCP server"),
         ("copilot", "Copilot CLI"),
         ("az", "Azure CLI login"),
+        ("npx", "optional; the Azure MCP Server (Advisor and retail prices) won't start without Node.js"),
     ):
         found = shutil.which(cmd)
         checks.append(Check(f"{cmd} on PATH", "ok" if found else "warn", found or f"{why} not found"))
+    vscode = _vscode_check(root)
+    if vscode is not None:
+        checks.append(vscode)
     if env.get("GITHUB_ACTIONS") == "true":
         # Same precedence as Copilot CLI. The workflows pass the PAT secret or the job token as the first.
         source = next((k for k in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN") if env.get(k)), None)
@@ -132,8 +225,45 @@ def run_doctor(
             )
         )
 
-    if skip_azure or config is None:
-        checks.append(Check("azure access", "skip", "skipped" if skip_azure else "no config"))
+    # The runtime reads fixture mode from the process environment, so check both.
+    fixture = bool(env.get("FINOPS_FIXTURE_MODE") or os.environ.get("FINOPS_FIXTURE_MODE"))
+    placeholders = _placeholder_ids(config) if config is not None and not fixture else []
+    if placeholders:
+        checks.append(
+            Check(
+                "config ids",
+                "fail",
+                f"placeholder IDs from the example config: {', '.join(placeholders)}",
+                "Run `finops init --force` to fill in your tenant and subscriptions from `az account list`",
+            )
+        )
+    signed_in = None
+    if config is not None and not skip_azure and not fixture and not placeholders and shutil.which("az"):
+        signed_in = _az_tenant()
+    tenant_mismatch = signed_in is not None and signed_in != config.azure.tenant_id.lower()
+    if tenant_mismatch:
+        checks.append(
+            Check(
+                "az tenant",
+                "fail",
+                f"az is signed in to tenant {signed_in}, but finops/config.yaml uses {config.azure.tenant_id}",
+                f"az login --tenant {config.azure.tenant_id}",
+            )
+        )
+    elif signed_in is not None:
+        checks.append(Check("az tenant", "ok", signed_in))
+
+    if skip_azure or config is None or placeholders or tenant_mismatch:
+        reason = (
+            "skipped"
+            if skip_azure
+            else "no config"
+            if config is None
+            else "fix the config ids first"
+            if placeholders
+            else "fix the az tenant first"
+        )
+        checks.append(Check("azure access", "skip", reason))
     else:
         from .runtime import build_runtime
         from .scopes import get_capabilities
@@ -151,18 +281,8 @@ def run_doctor(
                 )
             )
         else:
-            for res in caps["subscriptions"].values():
-                for cap in ("cost_data", "resource_graph", "advisor", "activity_log"):
-                    r = res[cap]
-                    ok = r.get("status") == "available"
-                    checks.append(
-                        Check(
-                            f"{res['name']}: {cap}",
-                            "ok" if ok else "fail",
-                            "" if ok else r.get("missing") or r.get("error", ""),
-                            "" if ok else r.get("remediation", ""),
-                        )
-                    )
+            for sub_id, res in caps["subscriptions"].items():
+                checks += _subscription_checks(res, sub_id)
             if rt.fixture:
                 checks.append(
                     Check("azure mode", "warn", "FINOPS_FIXTURE_MODE is on: synthetic data, not real Azure")
